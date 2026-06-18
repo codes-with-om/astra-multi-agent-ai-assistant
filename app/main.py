@@ -23,7 +23,9 @@ def chat(request: ChatRequest):
     initial_state = {
         "user_message": request.message,
         "plan": [],
+        "route": "",
         "tool_results": [],
+        "agent_result": "",
         "final_response": ""
     }
 

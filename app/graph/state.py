@@ -5,3 +5,5 @@ class AstraState(TypedDict):
     plan: list[str]
     tool_results: list[str]
     final_response: str
+    route: str
+    agent_result: str
