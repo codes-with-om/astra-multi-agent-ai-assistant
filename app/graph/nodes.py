@@ -1,5 +1,6 @@
 from app.graph.state import AstraState
 from app.llm.groq_client import call_llm
+from app.tools.tool_executor import execute_tool
 
 def planner_node(state: AstraState):
     return{
@@ -114,29 +115,45 @@ def calendar_agent_node(state: AstraState):
 
 def contacts_agent_node(state: AstraState):
     prompt = f"""
-    You are ASTRA's Contacts Agent.
+    Extract only the person's name from this contact lookup request.
 
     User request:
     {state["user_message"]}
 
-    Your job:
-    - Identify the person or contact information the user is looking for
-    - Do not invent phone numbers or email addresses
-    - Do not claim that a contact was found because real contact tools are not connected yet
-    - Clearly say that contact lookup requires the contacts tool
-    - Return a clear contact lookup summary
+    Rules:
+    - Return only the name.
+    - Do not return a sentence.
+    - Do not add labels.
+    - Do not add explanation.
+    - If the name is possessive, normalize it.
 
-    Return in this format:
-
-    Contact Lookup:
-    Person:
-    Requested Info:
-    Tool Required:
-    Missing Information:
-    Next Step:
+    Examples:
+    Find John's email address -> John
+    Get Sarah's phone number -> Sarah
     """
 
-    result = call_llm(prompt)
+    name = call_llm(prompt).strip()
+
+    name = name.replace("The person's name is:", "").strip()
+    name = name.replace("The person name is:", "").strip()
+    name = name.replace(".", "").strip()
+
+    contact = execute_tool("search_contact", {"name": name})
+
+    if contact:
+        result = f"""
+    Contact found:
+
+    Name: {contact["name"]}
+    Email: {contact["email"]}
+    Phone: {contact["phone"]}
+    """
+    else:
+        result = f"""
+    Contact not found for: {name}
+
+    Please provide more identifying details.
+    """
 
     return {
         "agent_result": result
