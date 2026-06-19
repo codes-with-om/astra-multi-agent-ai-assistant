@@ -1,6 +1,8 @@
 from app.graph.state import AstraState
 from app.llm.groq_client import call_llm
 from app.tools.tool_executor import execute_tool
+import asyncio
+from app.mcp_client.contacts_client import search_contact_from_mcp
 
 def planner_node(state: AstraState):
     return{
@@ -138,16 +140,18 @@ def contacts_agent_node(state: AstraState):
     name = name.replace("The person name is:", "").strip()
     name = name.replace(".", "").strip()
 
-    contact = execute_tool("search_contact", {"name": name})
+    contact_result = asyncio.run(search_contact_from_mcp(name))
 
-    if contact:
+    if contact_result["found"]:
+        contact = contact_result["contact"]
         result = f"""
-    Contact found:
+        Contact found:
 
-    Name: {contact["name"]}
-    Email: {contact["email"]}
-    Phone: {contact["phone"]}
-    """
+        Name: {contact["name"]}
+        Email: {contact["email"]}
+        Phone: {contact["phone"]}
+        """
+
     else:
         result = f"""
     Contact not found for: {name}
@@ -199,5 +203,5 @@ def general_agent_node(state: AstraState):
 
 def response_node(state: AstraState):
     return {
-        "final_response": state["agent_result"]
+        "final_response": state["agent_result"].strip()
     }
