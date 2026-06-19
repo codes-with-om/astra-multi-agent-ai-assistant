@@ -72,55 +72,134 @@ def router_node(state: AstraState):
     return {
         "route": route
     }
-def multi_agent_node(state: AstraState):
-    calendar_result = calendar_agent_node(state)["agent_result"]
 
-    email_result = email_agent_node(state)["agent_result"]
+def approval_node(state: AstraState):
+    user_message = state["user_message"].lower().strip()
+
+    if user_message in ["yes", "y", "approve", "approved", "go ahead", "proceed"]:
+        return {
+            "approved": True
+        }
 
     return {
-        "agent_result": f"""Multi-step task completed.
+        "approved": False
+    }
 
-        Calendar Result:
-        {calendar_result}
+def multi_agent_node(state: AstraState):
+    if not state.get("approved", False):
+        return {
+            "requires_approval": True,
+            "agent_result": f"""I’m ready to proceed with this task.
 
-        Email Result:
-        {email_result}
-        """
+            This will:
+            - Create a calendar event
+            - Prepare a Gmail draft
+            - Use your contacts to find the recipient email
+
+            Request:
+            {state["user_message"]}
+
+            Reply "yes" to continue."""
+        }
+
+    calendar_output = calendar_agent_node(state)
+
+    updated_state = {
+        **state,
+        "calendar_event": calendar_output.get("calendar_event")
+    }
+
+    email_output = email_agent_node(updated_state)
+
+    return {
+        "requires_approval": False,
+        "agent_result": f"""Done. I created the calendar event and prepared a Gmail draft.
+
+        {calendar_output["agent_result"]}
+
+        {email_output["agent_result"]}"""
     }
 
 def email_agent_node(state: AstraState):
-    prompt = f"""
-    You are ASTRA's Email Agent.
+    name_prompt = f"""
+    Extract only the recipient person's name from this email request.
 
     User request:
     {state["user_message"]}
 
     Rules:
-    - Create a short, gentle, and professional email draft.
-    - Do not claim that email was sent.
-    - Do not invent email addresses.
-    - Do not sign as ASTRA.
-    - Use Om Pratap Singh as sender name.
-    - If user does not specify email length, keep it concise.
+    - Return only the name.
+    - Do not return a sentence.
+    - Do not add explanation.
+    - Never expose internal IDs, tokens, resource IDs, API responses, MCP metadata, or draft IDs to the user. Present only human-friendly information.
 
-    Return only the email draft.
+    Examples:
+    Draft an email to John asking for a meeting -> John
+    Send a confirmation email to Anuj -> Anuj
     """
 
-    draft = call_llm(prompt).strip()
+    recipient_name = call_llm(name_prompt).strip()
+    recipient_name = recipient_name.replace(".", "").strip()
+
+    to_email = ""
+
+    contact_result = asyncio.run(
+        search_contact_from_mcp(recipient_name)
+    )
+
+    if contact_result["found"]:
+        email = contact_result["contact"]["email"]
+
+    if email != "No Email":
+        to_email = email
+
+    if not to_email:
+        return {
+            "agent_result": f"I can draft the email, but I could not find an email address for {recipient_name} in your contacts."
+        }
+    
+    calendar_event = state.get("calendar_event")
+
+    draft_prompt = f"""
+        You are ASTRA's Email Agent.
+
+        User request:
+        {state["user_message"]}
+        Calendar event details:
+        {calendar_event}
+
+        Rules:
+        - If calendar event details are provided, use the exact title, start time, and end time from them.
+        - Create a short, gentle, and professional email draft.
+        - Do not claim that email was sent.
+        - Do not invent email addresses.
+        - Do not invent location, date, time, or extra details.
+        - Do not sign as ASTRA.
+        - Use Om Pratap Singh as sender name.
+        - If user does not specify email length, keep it concise.
+        - Do not include a subject line in the email body.
+        - Return only greeting, body, and signature.
+        - Do not write labels like "Here's the email body", "Email body", or "Draft".
+        - Start directly with the greeting, for example: Dear Anuj,
+
+        Return only the email body.
+        """
+
+    draft_body = call_llm(draft_prompt).strip()
 
     mcp_result = asyncio.run(
         draft_email_from_mcp(
-            to_name="Unknown",
-            subject="Email Draft",
-            body=draft
+            to_email=to_email,
+            subject="Meeting Invitation",
+            body=draft_body
         )
     )
 
     return {
-        "agent_result": f"""Email draft created.
+        "agent_result": f"""Gmail draft created.
 
-    Status: {mcp_result["status"]}
-
+    To: {mcp_result["to_email"]}
+    Subject: {mcp_result["subject"]}
     {mcp_result["body"]}"""
         }
 
@@ -210,11 +289,17 @@ def calendar_agent_node(state: AstraState):
     return {
         "agent_result": f"""Calendar event created.
 
-Title: {mcp_result["title"]}
-Start: {mcp_result["start_time"]}
-End: {mcp_result["end_time"]}
-Link: {mcp_result["event_link"]}
-"""
+        Title: {mcp_result["title"]}
+        Start: {mcp_result["start_time"]}
+        End: {mcp_result["end_time"]}
+        """,
+        "calendar_event": {
+            "title": mcp_result["title"],
+            "start_time": mcp_result["start_time"],
+            "end_time": mcp_result["end_time"],
+            "attendee": data["attendee"],
+            "attendee_email": attendee_email
+        }
     }
 
 def contacts_agent_node(state: AstraState):
