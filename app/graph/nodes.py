@@ -3,6 +3,7 @@ from app.llm.groq_client import call_llm
 from app.tools.tool_executor import execute_tool
 import asyncio
 from app.mcp_client.contacts_client import search_contact_from_mcp
+from app.mcp_client.email_client import draft_email_from_mcp
 
 def planner_node(state: AstraState):
     return{
@@ -57,29 +58,34 @@ def email_agent_node(state: AstraState):
     User request:
     {state["user_message"]}
 
-    Your job:
-    - Do not sign as ASTRA
-    - Use Om Pratap SIngh as placeholder if sender name is unknown
-    - Answers should be gentle and professional
-    - Don't be familiar or harsh untill don't tell
-    - Understand what email-related help the user wants
-    - If they ask to draft an email, create a short professional draft
-    - Do not claim that email was sent
-    - Do not use fake email addresses
-    - Keep response clear and useful
+    Rules:
+    - Create a short, gentle, and professional email draft.
+    - Do not claim that email was sent.
+    - Do not invent email addresses.
+    - Do not sign as ASTRA.
+    - Use Om Pratap Singh as sender name.
     - If user does not specify email length, keep it concise.
-    - Do not invent facts.
-    - Do not invent dates, times, locations, or recipients.
-    - Ask for missing information when required.
 
-    Return the email agent result only.
+    Return only the email draft.
     """
 
-    result = call_llm(prompt)
+    draft = call_llm(prompt).strip()
+
+    mcp_result = asyncio.run(
+        draft_email_from_mcp(
+            to_name="Unknown",
+            subject="Email Draft",
+            body=draft
+        )
+    )
 
     return {
-        "agent_result": result
-    }
+        "agent_result": f"""Email draft created.
+
+    Status: {mcp_result["status"]}
+
+    {mcp_result["body"]}"""
+        }
 
 def calendar_agent_node(state: AstraState):
     prompt = f"""
@@ -199,7 +205,6 @@ def general_agent_node(state: AstraState):
     return {
         "agent_result": result
     }
-
 
 def response_node(state: AstraState):
     return {

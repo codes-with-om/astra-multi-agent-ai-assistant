@@ -4,10 +4,10 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-async def search_contact_from_mcp(name: str):
+async def draft_email_from_mcp(to_name: str, subject: str, body: str):
     server_params = StdioServerParameters(
         command="python",
-        args=["-m", "app.mcp_servers.contacts_server"],
+        args=["app/mcp_servers/email_server.py"],
     )
 
     async with stdio_client(server_params) as (read, write):
@@ -15,13 +15,13 @@ async def search_contact_from_mcp(name: str):
             await session.initialize()
 
             result = await session.call_tool(
-                "search_contact",
+                "draft_email",
                 {
-                    "name": name
+                    "to_name": to_name,
+                    "subject": subject,
+                    "body": body
                 }
             )
 
             raw_text = result.content[0].text
-            parsed_result = json.loads(raw_text)
-
-            return parsed_result
+            return json.loads(raw_text)
