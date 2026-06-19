@@ -4,6 +4,25 @@ from app.tools.tool_executor import execute_tool
 import asyncio
 from app.mcp_client.contacts_client import search_contact_from_mcp
 from app.mcp_client.email_client import draft_email_from_mcp
+from datetime import datetime, timedelta
+from app.mcp_client.calendar_client import create_calendar_event_from_mcp
+from app.utils.datetime_parser import convert_to_datetime
+import re
+import json
+
+def extract_json_from_text(text: str):
+    text = text.strip()
+
+    text = text.replace("```json", "")
+    text = text.replace("```", "")
+    text = text.strip()
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+
+    if not match:
+        raise ValueError(f"No JSON found in LLM output: {text}")
+
+    return json.loads(match.group())
 
 def planner_node(state: AstraState):
     return{
@@ -91,35 +110,78 @@ def calendar_agent_node(state: AstraState):
     prompt = f"""
     You are ASTRA's Calendar Agent.
 
+    Extract calendar event details from the user request.
+
     User request:
     {state["user_message"]}
 
-    Your job:
-    - Extract calendar or meeting details from the user request
-    - Return structured event details
-    - Do not claim that an event was created
-    - Do not invent missing dates, times, attendees, or locations
-    - If important details are missing, clearly mention what is missing
+    Return only valid JSON with these fields:
+    {{
+    "title": "",
+    "date": "",
+    "time": "",
+    "duration_minutes": 60,
+    "attendee": "",
+    "missing_information": []
+    }}
 
-    Return in this format:
-
-    Event Summary:
-    Title:
-    Date:
-    Time:
-    Duration:
-    Attendees:
-    Location:
-    Missing Information:
-    Next Step:
+    Rules:
+    - Do not invent missing information.
+    - If date is missing, add "date" to missing_information.
+    - If time is missing, add "time" to missing_information.
+    - If duration is missing, use 60.
+    - If title is missing, use "Meeting".
+    - If attendee is missing, keep it empty.
+    - duration_minutes must be a number only, example: 60
+    - missing_information must be a JSON array of strings
+    - Do not use comments, markdown, or Python values
+    - Return JSON only, no explanation
+    - If attendee exists, title should be "Meeting with <attendee>".
     """
 
-    result = call_llm(prompt)
+    extraction_text = call_llm(prompt).strip()
+
+    data = extract_json_from_text(extraction_text)
+
+    if data["missing_information"]:
+        missing = ", ".join(data["missing_information"])
+
+        return {
+            "agent_result": f"I can schedule this, but I need: {missing}."
+        }
+
+    start_time = convert_to_datetime(
+        data["date"],
+        data["time"]
+    )
+
+    if start_time is None:
+        return {
+            "agent_result": "I understood the calendar request, but I could not convert the date or time yet."
+        }
+
+    end_time = start_time + timedelta(
+        minutes=int(data["duration_minutes"])
+    )
+
+    mcp_result = asyncio.run(
+        create_calendar_event_from_mcp(
+            title=data["title"],
+            start_time=start_time.isoformat(),
+            end_time=end_time.isoformat(),
+            description=f"Created from user request: {state['user_message']}",
+        )
+    )
 
     return {
-        "agent_result": result
-    }
+        "agent_result": f"""Calendar event created.
 
+Title: {mcp_result["title"]}
+Start: {mcp_result["start_time"]}
+End: {mcp_result["end_time"]}
+Link: {mcp_result["event_link"]}
+"""
+    }
 
 def contacts_agent_node(state: AstraState):
     prompt = f"""
