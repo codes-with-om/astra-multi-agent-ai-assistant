@@ -44,6 +44,7 @@ def router_node(state: AstraState):
     - calendar
     - contacts
     - general
+    - multi
 
     Rules:
     - If the user wants to draft, send, read, or manage email, return email.
@@ -53,6 +54,8 @@ def router_node(state: AstraState):
     - If the user asks about ASTRA, its owner, boss, identity, or assistant context, return general.
     - Do not route identity questions to contacts.
     - Contacts route is only for looking up external people's contact details like email, phone number, or address.
+    - If the user request contains multiple actions, such as scheduling a meeting and sending/drafting an email, return multi.
+    - If the request needs more than one agent/tool to complete, return multi.
 
     User request:
     {state["user_message"]}
@@ -63,11 +66,26 @@ def router_node(state: AstraState):
 
     route = call_llm(prompt).strip().lower()
 
-    if route not in ["email", "calendar", "contacts", "general"]:
+    if route not in ["email", "calendar", "contacts", "general", "multi"]:
         route = "general"
 
     return {
         "route": route
+    }
+def multi_agent_node(state: AstraState):
+    calendar_result = calendar_agent_node(state)["agent_result"]
+
+    email_result = email_agent_node(state)["agent_result"]
+
+    return {
+        "agent_result": f"""Multi-step task completed.
+
+        Calendar Result:
+        {calendar_result}
+
+        Email Result:
+        {email_result}
+        """
     }
 
 def email_agent_node(state: AstraState):
@@ -164,12 +182,28 @@ def calendar_agent_node(state: AstraState):
         minutes=int(data["duration_minutes"])
     )
 
+    attendee_email = ""
+
+    if data["attendee"]:
+        contact_result = asyncio.run(
+            search_contact_from_mcp(
+                data["attendee"]
+            )
+        )
+
+        if contact_result["found"]:
+            email = contact_result["contact"]["email"]
+
+        if email != "No Email":
+            attendee_email = email
+
     mcp_result = asyncio.run(
         create_calendar_event_from_mcp(
             title=data["title"],
             start_time=start_time.isoformat(),
             end_time=end_time.isoformat(),
             description=f"Created from user request: {state['user_message']}",
+            attendee_email=attendee_email
         )
     )
 

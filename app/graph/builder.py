@@ -9,6 +9,7 @@ from app.graph.nodes import (
     contacts_agent_node,
     general_agent_node,
     response_node,
+    multi_agent_node,
 )
 
 def route_request(state: AstraState):
@@ -25,6 +26,7 @@ def build_graph():
     graph_builder.add_node("ContactsAgent", contacts_agent_node)
     graph_builder.add_node("GeneralAgent", general_agent_node)
     graph_builder.add_node("Response", response_node)
+    graph_builder.add_node("MultiAgent", multi_agent_node)
 
     graph_builder.add_edge(START, "Planner")
     graph_builder.add_edge("Planner", "Router")
@@ -37,6 +39,7 @@ def build_graph():
             "calendar": "CalendarAgent",
             "contacts": "ContactsAgent",
             "general": "GeneralAgent",
+            "multi": "MultiAgent",
         }
     )
 
@@ -44,6 +47,7 @@ def build_graph():
     graph_builder.add_edge("CalendarAgent", "Response")
     graph_builder.add_edge("ContactsAgent", "Response")
     graph_builder.add_edge("GeneralAgent", "Response")
+    graph_builder.add_edge("MultiAgent", "Response")
 
     graph_builder.add_edge("Response", END)
 

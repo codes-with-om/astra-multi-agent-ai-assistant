@@ -9,7 +9,8 @@ async def create_calendar_event_from_mcp(
     start_time: str,
     end_time: str,
     description: str = "",
-    timezone: str = "Asia/Kolkata"
+    timezone: str = "Asia/Kolkata",
+    attendee_email: str = ""
 ):
     server_params = StdioServerParameters(
         command="python",
@@ -28,8 +29,13 @@ async def create_calendar_event_from_mcp(
                     "end_time": end_time,
                     "description": description,
                     "timezone": timezone,
+                    "attendee_email": attendee_email,
                 }
             )
 
             raw_text = result.content[0].text
+
+            if result.isError:
+                raise RuntimeError(f"Calendar MCP error: {raw_text}")
+
             return json.loads(raw_text)
